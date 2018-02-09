@@ -210,6 +210,19 @@ foo.observe(.value) { snapshot in
 Then we’re afraid that you cannot use PromiseKit for that event. Promises only resolve `once`, this is the fundamental nature of promises and is considered a feature since it gives you guarantees about the flow of your chains.
 
 
+## How do I change the default queues that handlers run upon?
+
+You can change the values of `PromiseKit.conf.Q`, there are two variables that
+change the defaults that the two kinds of handler run upon. Thus a typical
+pattern is to change all your `then`-type handlers to run in a background queue
+and have all your “finalizers” run on the main queue:
+
+```
+PromiseKit.conf.Q.map = .global()
+PromiseKit.conf.Q.return = .main  //NOTE this is the default
+```
+
+
 ## How do I use PromiseKit server-side?
 
 If your server framework requires the main-queue remain unused (eg. Kitura) then you must use
@@ -247,7 +260,6 @@ Log.info("Starting server")
 Kitura.addHTTPServer(onPort: 8888, with: router)
 Kitura.run()
 ```
-
 
 ## My question was not answered
 

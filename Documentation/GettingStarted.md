@@ -1,4 +1,4 @@
-# `then`
+# `then`, `done`
 
 Here is a typical promise chain:
 
@@ -7,7 +7,7 @@ firstly {
     login()
 }.then { creds in
     fetch(avatar: creds.user)
-}.then { image in
+}.done { image in
     self.imageView = image
 }
 ```
@@ -26,10 +26,15 @@ login { creds, error in
 }
 ```
 
-`then` *is* just another way to do completion handlers, but it is also quite a bit more. At this
-initial stage of our understanding it merely helps readability. The promise chain above is easy
-to read, one asynchronous operation leads into the other, read line by line. It's as close to
+`then` *is* just another way to do completion handlers, but it is also quite a
+bit more. At this initial stage of our understanding it merely helps
+readability. The promise chain above is easy to read, one asynchronous operation
+leads into the other, read line by line. It's as close to
 procedural code as we can easily get with the current state of Swift.
+
+`done` is the same as `then` but you cannot return a promise, it is the
+typically the end of the “success” part of the chain. Above you can see how we
+get the final image in our `done` and use if to set our UI.
 
 Let’s compare the signatures of the two login methods:
 
@@ -46,9 +51,16 @@ The distinction is that with promises your functions returns *promises*. So for 
 chain we return a promise. By doing this we can call `then`. Each `then` waits on its promise, so the
 chains resolve procedurally, one at a time.
 
-A Promise represents the future value of an asynchronous task. It has a type
+A `Promise` represents the future value of an asynchronous task. It has a type
 that represents the type of object it wraps. In the above example `login` is a
 function that returns a `Promise` that *will* represent an instance of `Creds`.
+
+> Note, `done` is new to PromiseKit 5, previously we had a `then` variant that
+did not require a promise to be returned. The problem is, this often confused
+Swift leading to confusing and hard to debug error diagnostics, but also it made
+using PromiseKit more painful; introducing `done` makes it possible to type out
+promise chains that compile without additional qualification to help the
+compiler.
 
 ---
 
@@ -67,7 +79,7 @@ firstly {
     login()
 }.then { creds in
     fetch(avatar: creds.user)
-}.then { image in
+}.done { image in
     self.imageView = image
 }.catch {
     // any errors in the whole chain land here
@@ -102,7 +114,7 @@ Use of `guard` and a consolidated error handler help, but the promise chain’s
 readability speaks for itself.
 
 
-# `always`
+# `ensure`
 
 We have learned to compose asynchronicity. Next let’s extend our primitives:
 
@@ -112,16 +124,16 @@ firstly {
     return login()
 }.then {
     fetch(avatar: $0.user)
-}.then {
+}.done {
     self.imageView = $0
-}.always {
+}.ensure {
     UIApplication.shared.isNetworkActivityIndicatorVisible = false
 }.catch {
     //…
 }
 ```
 
-Whatever the outcome in your chain—failure or success—your `always`
+Whatever the outcome in your chain—failure or success—your `ensure`
 handler is called.
 
 For fun let’s compare this pattern with a completion handler equivalent:
@@ -147,6 +159,9 @@ login { creds, error in
 Here it would be trivial for somebody to amend this code and not unset the activity indicator leading to a bug. With
 promises this is almost impossible, the Swift compiler will resist you supplementing the chain without promises, you
 almost won’t need to review the pull-requests.
+
+> Note PromiseKit has inconveniently switched between naming this function
+`always` and `ensure` multiple times. Sorry about this, we suck.
 
 
 # `when`
@@ -188,7 +203,7 @@ Promises are easier:
 ```swift
 firstly {
     when(fulfilled: operation1(), operation2())
-}.then { result1, result2 in
+}.done { result1, result2 in
     //…
 }
 ```
@@ -208,7 +223,7 @@ firstly {
     CLLocationManager.promise()
 }.then { location in
     CLGeocoder.reverseGeocode(location)
-}.then { placemarks in
+}.done { placemarks in
     self.placemark.text = "\(placemarks.first)"
 }
 ```
@@ -242,33 +257,31 @@ How do we convert this to a promise? Well, it's easy:
 
 ```swift
 func fetch() -> Promise<String> {
-    return PromiseKit.wrap(fetch) }
+    return Promise(.pending) { fetch(completion: $0.resolve) }
 }
 ```
 
-For more complicated situations use the root-resolver:
+You may provde the expanded version more readable:
 
 ```swift
 func fetch() -> Promise<String> {
-    return Promise { fulfill, reject in
+    return Promise(.pending) { seal in
         foo { result, error in
-            if let result = result {
-                fulfill(result)
-            } else if let error = error {
-                reject(error)
-            } else {
-                reject(PMKError.invalidCallingConvention)
-                // ^^ we provide this error so that all paths are handled, even
-                // this path which technically should never happen (but might!)
-            }
+            seal.resolve(result, error)
         }
     }
 }
 ```
 
-Note with the above example `PromiseKit.wrap(foo)` *would* have worked.
-Only use the root-resolver when wrap doesn’t work *or* you need to handle
-non-typical scenarios.
+You’ll find the `seal` object the Promise initializer provides you has many
+methods for the common variety of completion handlers, and even some rarer
+situations thus making it really easy for you to add promises to your existing
+codebases.
+
+> Note we tried to make it so you could just do `Promise(fetch)` but we couldn’t
+make this simpler pattern work for the wide variety of situations you encounter
+without making the 90% case easy to use and un-ambiguous for the Swift compiler.
+Sorry, we tried.
 
 # Supplement
 
@@ -329,6 +342,13 @@ Our documentation often omits the `return` for clarity.
 However this is a blessing and a curse, as the Swift compiler often will fail
 to infer return types. See our [Troubleshooting Guide](Troubleshooting.md) if
 you require further assistance.
+
+> By adding `done` to PromiseKit 5 we have managed to avoid many of the common
+pain points in using PromiseKit and Swift. This was also our justification for
+making you specify `.pending` when using the Promise initializer (although this
+has been less successful as Swift will choose the `Promise(value:)` initializer
+if you don’t specify `.pending` which is our main reason for holding off on
+releasing version 5).
 
 
 # Further Reading
